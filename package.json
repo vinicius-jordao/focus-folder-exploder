@@ -1,0 +1,129 @@
+{
+  "name": "focus-folder",
+  "displayName": "Focus Folder Explorer",
+  "description": "Focus on one folder in a dedicated tree without changing the workspace, indexing, or other extensions.",
+  "icon": "media/icon.png",
+  "version": "0.0.7",
+  "publisher": "viniciusjordao",
+  "license": "MIT",
+  "author": "Vinicius Jordao",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/viniciusjordao/focus-folder.git"
+  },
+  "homepage": "https://github.com/viniciusjordao/focus-folder#readme",
+  "bugs": {
+    "url": "https://github.com/viniciusjordao/focus-folder/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "explorer",
+    "folder",
+    "focus",
+    "workspace",
+    "sidebar",
+    "tree"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:focusFolder.focus",
+    "onCommand:focusFolder.clearFocus"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "focusFolder",
+          "title": "Focus Folder",
+          "icon": "$(target)"
+        }
+      ]
+    },
+    "views": {
+      "focusFolder": [
+        {
+          "id": "focusFolder.tree",
+          "name": "Focused Folder",
+          "when": "focusFolder.hasActiveFocus"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "focusFolder.focus",
+        "title": "Focus on This Folder",
+        "category": "Focus Folder",
+        "icon": "$(target)"
+      },
+      {
+        "command": "focusFolder.clearFocus",
+        "title": "Clear Focus",
+        "category": "Focus Folder",
+        "icon": "$(close-all)"
+      },
+      {
+        "command": "focusFolder.revealInExplorer",
+        "title": "Reveal in Explorer",
+        "category": "Focus Folder",
+        "icon": "$(go-to-file)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "focusFolder.focus",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@50"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "focusFolder.clearFocus",
+          "when": "view == focusFolder.tree && focusFolder.hasActiveFocus",
+          "group": "navigation@10"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "focusFolder.focus",
+          "when": "view == focusFolder.tree && viewItem == directory",
+          "group": "navigation@10"
+        },
+        {
+          "command": "focusFolder.revealInExplorer",
+          "when": "view == focusFolder.tree",
+          "group": "navigation@20"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "focusFolder.clearFocus",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.revealInExplorer",
+          "when": "focusFolder.hasActiveFocus"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package:vsix": "mkdir -p versions && vsce package -o versions/focus-folder-$npm_package_version.vsix",
+    "publish:vsce": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.7.1",
+    "typescript": "^5.8.2"
+  }
+}
