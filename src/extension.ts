@@ -47,6 +47,15 @@ class FocusedFolderProvider implements vscode.TreeDataProvider<FocusedFolderItem
     return this.focusedFolder;
   }
 
+  async getItemForUri(uri: vscode.Uri): Promise<FocusedFolderItem | undefined> {
+    const stat = await safeStat(uri);
+    if (!stat) {
+      return undefined;
+    }
+
+    return new FocusedFolderItem(uri, stat.type);
+  }
+
   refresh(): void {
     this.onDidChangeTreeDataEmitter.fire();
   }
@@ -104,6 +113,20 @@ class FocusedFolderProvider implements vscode.TreeDataProvider<FocusedFolderItem
 
     return item;
   }
+
+  getParent(element: FocusedFolderItem): FocusedFolderItem | undefined {
+    const focusedFolder = this.focusedFolder;
+    if (!focusedFolder) {
+      return undefined;
+    }
+
+    const parent = dirnameUri(element.uri);
+    if (parent.toString() === element.uri.toString() || parent.toString() === focusedFolder.toString()) {
+      return undefined;
+    }
+
+    return new FocusedFolderItem(parent, vscode.FileType.Directory);
+  }
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -125,10 +148,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         provider.refresh();
       }
     }),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      void revealActiveEditorInFocusedTree(provider, treeView);
+    }),
+    treeView.onDidChangeVisibility((event) => {
+      if (event.visible) {
+        void revealActiveEditorInFocusedTree(provider, treeView);
+      }
+    }),
   );
 
-  await restoreState(context, provider);
+  const restoredFocus = await restoreState(context, provider);
   await syncUiState(context, provider, treeView, clearFocusItem);
+  if (restoredFocus) {
+    await openFocusedFolderView();
+    await revealActiveEditorInFocusedTree(provider, treeView);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand("focusFolder.focus", async (target?: vscode.Uri | FocusedFolderItem) => {
@@ -137,8 +172,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("focusFolder.clearFocus", async () => {
       await clearFocus(context, provider, treeView, clearFocusItem);
     }),
+    vscode.commands.registerCommand("focusFolder.refresh", async () => {
+      provider.refresh();
+    }),
+    vscode.commands.registerCommand("focusFolder.newFile", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await createChild(provider, target, "file");
+    }),
+    vscode.commands.registerCommand("focusFolder.newFolder", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await createChild(provider, target, "folder");
+    }),
     vscode.commands.registerCommand("focusFolder.revealInExplorer", async (target?: vscode.Uri | FocusedFolderItem) => {
       await revealInExplorer(resolveTargetUri(target));
+    }),
+    vscode.commands.registerCommand("focusFolder.revealInFileManager", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await revealInFileManager(resolveTargetUri(target));
+    }),
+    vscode.commands.registerCommand("focusFolder.openInIntegratedTerminal", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await openInIntegratedTerminal(provider, target);
+    }),
+    vscode.commands.registerCommand("focusFolder.copyPath", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await copyPath(resolveTargetUri(target));
+    }),
+    vscode.commands.registerCommand("focusFolder.copyRelativePath", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await copyRelativePath(resolveTargetUri(target));
+    }),
+    vscode.commands.registerCommand("focusFolder.rename", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await renameEntry(provider, target);
+    }),
+    vscode.commands.registerCommand("focusFolder.delete", async (target?: vscode.Uri | FocusedFolderItem) => {
+      await deleteEntry(provider, target);
     }),
   );
 }
@@ -146,24 +208,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 async function restoreState(
   context: vscode.ExtensionContext,
   provider: FocusedFolderProvider,
-): Promise<void> {
+): Promise<boolean> {
   const state = context.workspaceState.get<unknown>(STATE_KEY);
   if (!state) {
     provider.setFocusedFolder(undefined);
-    return;
+    return false;
   }
 
   if (isLegacyFocusState(state)) {
     await restoreLegacyExplorerState(state);
     await context.workspaceState.update(STATE_KEY, undefined);
     provider.setFocusedFolder(undefined);
-    return;
+    return false;
   }
 
   if (!isFocusState(state)) {
     await context.workspaceState.update(STATE_KEY, undefined);
     provider.setFocusedFolder(undefined);
-    return;
+    return false;
   }
 
   const focusedFolder = vscode.Uri.parse(state.focusedFolder);
@@ -171,10 +233,11 @@ async function restoreState(
   if (!folderStat || (folderStat.type & vscode.FileType.Directory) === 0 || !isInWorkspace(focusedFolder)) {
     await context.workspaceState.update(STATE_KEY, undefined);
     provider.setFocusedFolder(undefined);
-    return;
+    return false;
   }
 
   provider.setFocusedFolder(focusedFolder);
+  return true;
 }
 
 async function focusOnFolder(
@@ -208,6 +271,7 @@ async function focusOnFolder(
   provider.setFocusedFolder(resource);
   await syncUiState(context, provider, treeView, clearFocusItem);
   await openFocusedFolderView();
+  await revealActiveEditorInFocusedTree(provider, treeView);
 }
 
 async function clearFocus(
@@ -269,12 +333,222 @@ async function revealInExplorer(resource: vscode.Uri | undefined): Promise<void>
   }
 }
 
+async function revealActiveEditorInFocusedTree(
+  provider: FocusedFolderProvider,
+  treeView: vscode.TreeView<FocusedFolderItem>,
+): Promise<void> {
+  const focusedFolder = provider.getFocusedFolder();
+  const activeResource = vscode.window.activeTextEditor?.document.uri;
+  if (!focusedFolder || !activeResource || !isEqualOrParentUri(focusedFolder, activeResource)) {
+    return;
+  }
+
+  const item = await provider.getItemForUri(activeResource);
+  if (!item) {
+    return;
+  }
+
+  try {
+    await treeView.reveal(item, {
+      focus: false,
+      select: true,
+      expand: true,
+    });
+  } catch {
+    // Ignore when the tree cannot reveal the current resource.
+  }
+}
+
+async function revealInFileManager(resource: vscode.Uri | undefined): Promise<void> {
+  if (!resource) {
+    return;
+  }
+
+  try {
+    await vscode.commands.executeCommand("revealFileInOS", resource);
+  } catch {
+    // Ignore when the current host does not expose the built-in command.
+  }
+}
+
 async function openFocusedFolderView(): Promise<void> {
   try {
     await vscode.commands.executeCommand(`workbench.view.extension.${VIEW_CONTAINER_ID}`);
   } catch {
     // Ignore when the workbench command is unavailable in the current host.
   }
+}
+
+async function createChild(
+  provider: FocusedFolderProvider,
+  target: vscode.Uri | FocusedFolderItem | undefined,
+  kind: "file" | "folder",
+): Promise<void> {
+  const parent = await resolveDirectoryTarget(provider, target);
+  if (!parent) {
+    void vscode.window.showErrorMessage("Select a folder first.");
+    return;
+  }
+
+  const placeholder = kind === "file" ? "example.ts" : "new-folder";
+  const prompt = kind === "file" ? "Enter the new file name" : "Enter the new folder name";
+  const name = await vscode.window.showInputBox({
+    title: kind === "file" ? "New File" : "New Folder",
+    prompt,
+    placeHolder: placeholder,
+    ignoreFocusOut: true,
+    validateInput: validateEntryName,
+  });
+
+  if (!name) {
+    return;
+  }
+
+  const resource = vscode.Uri.joinPath(parent, name.trim());
+  if (await safeStat(resource)) {
+    void vscode.window.showErrorMessage(`${kind === "file" ? "File" : "Folder"} already exists.`);
+    return;
+  }
+
+  try {
+    if (kind === "file") {
+      await vscode.workspace.fs.writeFile(resource, new Uint8Array());
+      provider.refresh();
+      await vscode.commands.executeCommand("vscode.open", resource);
+      return;
+    }
+
+    await vscode.workspace.fs.createDirectory(resource);
+    provider.refresh();
+  } catch (error) {
+    void vscode.window.showErrorMessage(getErrorMessage(error, `Unable to create ${kind}.`));
+  }
+}
+
+async function openInIntegratedTerminal(
+  provider: FocusedFolderProvider,
+  target: vscode.Uri | FocusedFolderItem | undefined,
+): Promise<void> {
+  const directory = await resolveDirectoryTarget(provider, target);
+  if (!directory) {
+    void vscode.window.showErrorMessage("Select a folder first.");
+    return;
+  }
+
+  const terminal = vscode.window.createTerminal({
+    name: `Focus Folder: ${path.basename(directory.fsPath)}`,
+    cwd: directory.fsPath,
+  });
+  terminal.show();
+}
+
+async function copyPath(resource: vscode.Uri | undefined): Promise<void> {
+  if (!resource) {
+    return;
+  }
+
+  await vscode.env.clipboard.writeText(resource.fsPath);
+}
+
+async function copyRelativePath(resource: vscode.Uri | undefined): Promise<void> {
+  if (!resource) {
+    return;
+  }
+
+  await vscode.env.clipboard.writeText(vscode.workspace.asRelativePath(resource, true));
+}
+
+async function renameEntry(
+  provider: FocusedFolderProvider,
+  target: vscode.Uri | FocusedFolderItem | undefined,
+): Promise<void> {
+  const resource = resolveTargetUri(target);
+  if (!resource) {
+    void vscode.window.showErrorMessage("Select a file or folder first.");
+    return;
+  }
+
+  const currentName = path.basename(resource.fsPath);
+  const newName = await vscode.window.showInputBox({
+    title: "Rename",
+    value: currentName,
+    prompt: "Enter the new name",
+    ignoreFocusOut: true,
+    validateInput: validateEntryName,
+  });
+
+  if (!newName || newName.trim() === currentName) {
+    return;
+  }
+
+  const destination = vscode.Uri.joinPath(dirnameUri(resource), newName.trim());
+  if (await safeStat(destination)) {
+    void vscode.window.showErrorMessage("A file or folder with that name already exists.");
+    return;
+  }
+
+  try {
+    await vscode.workspace.fs.rename(resource, destination, { overwrite: false });
+    provider.refresh();
+  } catch (error) {
+    void vscode.window.showErrorMessage(getErrorMessage(error, "Unable to rename item."));
+  }
+}
+
+async function deleteEntry(
+  provider: FocusedFolderProvider,
+  target: vscode.Uri | FocusedFolderItem | undefined,
+): Promise<void> {
+  const resource = resolveTargetUri(target);
+  if (!resource) {
+    void vscode.window.showErrorMessage("Select a file or folder first.");
+    return;
+  }
+
+  const stat = await safeStat(resource);
+  if (!stat) {
+    provider.refresh();
+    return;
+  }
+
+  const isDirectory = (stat.type & vscode.FileType.Directory) !== 0;
+  const itemLabel = path.basename(resource.fsPath);
+  const confirm = await vscode.window.showWarningMessage(
+    `Delete ${isDirectory ? "folder" : "file"} "${itemLabel}"?`,
+    { modal: true },
+    "Delete",
+  );
+
+  if (confirm !== "Delete") {
+    return;
+  }
+
+  try {
+    await vscode.workspace.fs.delete(resource, {
+      recursive: isDirectory,
+      useTrash: true,
+    });
+    provider.refresh();
+  } catch (error) {
+    void vscode.window.showErrorMessage(getErrorMessage(error, "Unable to delete item."));
+  }
+}
+
+async function resolveDirectoryTarget(
+  provider: FocusedFolderProvider,
+  target: vscode.Uri | FocusedFolderItem | undefined,
+): Promise<vscode.Uri | undefined> {
+  const resource = resolveTargetUri(target) ?? provider.getFocusedFolder();
+  if (!resource) {
+    return undefined;
+  }
+
+  const stat = await safeStat(resource);
+  if (!stat) {
+    return undefined;
+  }
+
+  return (stat.type & vscode.FileType.Directory) !== 0 ? resource : dirnameUri(resource);
 }
 
 async function safeStat(resource: vscode.Uri): Promise<vscode.FileStat | undefined> {
@@ -447,8 +721,42 @@ function escapeRegexCharacter(char: string): string {
   return /[|\\{}()[\]^$+?.]/u.test(char) ? `\\${char}` : char;
 }
 
+function dirnameUri(resource: vscode.Uri): vscode.Uri {
+  return resource.with({ path: path.posix.dirname(resource.path) });
+}
+
+function isEqualOrParentUri(parent: vscode.Uri, candidate: vscode.Uri): boolean {
+  if (parent.scheme !== candidate.scheme || parent.authority !== candidate.authority) {
+    return false;
+  }
+
+  const relativePath = path.posix.relative(parent.path, candidate.path);
+  return relativePath === "" || (!relativePath.startsWith("../") && relativePath !== "..");
+}
+
 function toPosixPath(value: string): string {
   return value.replaceAll(path.sep, "/");
+}
+
+function validateEntryName(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "Name is required.";
+  }
+
+  if (trimmed === "." || trimmed === "..") {
+    return "Choose a different name.";
+  }
+
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    return "Use a single file or folder name.";
+  }
+
+  return undefined;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function compareEntries(

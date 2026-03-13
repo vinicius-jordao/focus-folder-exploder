@@ -3,17 +3,17 @@
   "displayName": "Focus Folder Explorer",
   "description": "Focus on one folder in a dedicated tree without changing the workspace, indexing, or other extensions.",
   "icon": "media/icon.png",
-  "version": "0.0.7",
+  "version": "0.0.11",
   "publisher": "viniciusjordao",
   "license": "MIT",
   "author": "Vinicius Jordao",
   "repository": {
     "type": "git",
-    "url": "https://github.com/viniciusjordao/focus-folder.git"
+    "url": "https://github.com/vinicius-jordao/focus-folder-exploder.git"
   },
-  "homepage": "https://github.com/viniciusjordao/focus-folder#readme",
+  "homepage": "https://github.com/vinicius-jordao/focus-folder-exploder#readme",
   "bugs": {
-    "url": "https://github.com/viniciusjordao/focus-folder/issues"
+    "url": "https://github.com/vinicius-jordao/focus-folder-exploder/issues"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -68,10 +68,64 @@
         "icon": "$(close-all)"
       },
       {
+        "command": "focusFolder.refresh",
+        "title": "Refresh",
+        "category": "Focus Folder",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "focusFolder.newFile",
+        "title": "New File...",
+        "category": "Focus Folder",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "focusFolder.newFolder",
+        "title": "New Folder...",
+        "category": "Focus Folder",
+        "icon": "$(new-folder)"
+      },
+      {
         "command": "focusFolder.revealInExplorer",
         "title": "Reveal in Explorer",
         "category": "Focus Folder",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "focusFolder.revealInFileManager",
+        "title": "Reveal in File Manager",
+        "category": "Focus Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "focusFolder.openInIntegratedTerminal",
+        "title": "Open in Integrated Terminal",
+        "category": "Focus Folder",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "focusFolder.copyPath",
+        "title": "Copy Path",
+        "category": "Focus Folder",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "focusFolder.copyRelativePath",
+        "title": "Copy Relative Path",
+        "category": "Focus Folder",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "focusFolder.rename",
+        "title": "Rename...",
+        "category": "Focus Folder",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "focusFolder.delete",
+        "title": "Delete",
+        "category": "Focus Folder",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -87,9 +141,34 @@
           "command": "focusFolder.clearFocus",
           "when": "view == focusFolder.tree && focusFolder.hasActiveFocus",
           "group": "navigation@10"
+        },
+        {
+          "command": "focusFolder.refresh",
+          "when": "view == focusFolder.tree && focusFolder.hasActiveFocus",
+          "group": "navigation@20"
+        },
+        {
+          "command": "focusFolder.newFile",
+          "when": "view == focusFolder.tree && focusFolder.hasActiveFocus",
+          "group": "navigation@30"
+        },
+        {
+          "command": "focusFolder.newFolder",
+          "when": "view == focusFolder.tree && focusFolder.hasActiveFocus",
+          "group": "navigation@40"
         }
       ],
       "view/item/context": [
+        {
+          "command": "focusFolder.newFile",
+          "when": "view == focusFolder.tree && viewItem == directory",
+          "group": "navigation@5"
+        },
+        {
+          "command": "focusFolder.newFolder",
+          "when": "view == focusFolder.tree && viewItem == directory",
+          "group": "navigation@6"
+        },
         {
           "command": "focusFolder.focus",
           "when": "view == focusFolder.tree && viewItem == directory",
@@ -99,6 +178,36 @@
           "command": "focusFolder.revealInExplorer",
           "when": "view == focusFolder.tree",
           "group": "navigation@20"
+        },
+        {
+          "command": "focusFolder.revealInFileManager",
+          "when": "view == focusFolder.tree",
+          "group": "navigation@21"
+        },
+        {
+          "command": "focusFolder.openInIntegratedTerminal",
+          "when": "view == focusFolder.tree && viewItem == directory",
+          "group": "navigation@22"
+        },
+        {
+          "command": "focusFolder.copyPath",
+          "when": "view == focusFolder.tree",
+          "group": "copy@10"
+        },
+        {
+          "command": "focusFolder.copyRelativePath",
+          "when": "view == focusFolder.tree",
+          "group": "copy@20"
+        },
+        {
+          "command": "focusFolder.rename",
+          "when": "view == focusFolder.tree",
+          "group": "modification@10"
+        },
+        {
+          "command": "focusFolder.delete",
+          "when": "view == focusFolder.tree",
+          "group": "modification@20"
         }
       ],
       "commandPalette": [
@@ -107,7 +216,43 @@
           "when": "focusFolder.hasActiveFocus"
         },
         {
+          "command": "focusFolder.refresh",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.newFile",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.newFolder",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
           "command": "focusFolder.revealInExplorer",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.revealInFileManager",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.openInIntegratedTerminal",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.copyPath",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.copyRelativePath",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.rename",
+          "when": "focusFolder.hasActiveFocus"
+        },
+        {
+          "command": "focusFolder.delete",
           "when": "focusFolder.hasActiveFocus"
         }
       ]
